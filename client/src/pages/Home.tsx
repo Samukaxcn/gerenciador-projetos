@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { db } from '@/lib/firebase'
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,13 +24,13 @@ interface Client {
 interface Project {
   id: string
   title: string
-  clientId: string
+  client_id: string
   type: string
   responsible: string
-  photoCount: string
+  quantity_photos: number
   status: string
-  order: number
-  createdAt: number
+  order_index: number
+  created_at: string
 }
 
 export default function Home() {
@@ -50,41 +49,70 @@ export default function Home() {
   const [newProjectPhotoCount, setNewProjectPhotoCount] = useState('')
   const [newClientName, setNewClientName] = useState('')
 
-  // Carregar dados do Firestore
+  // Carregar dados do Supabase
   useEffect(() => {
-    // Carregar clientes
-    const clientsQuery = query(collection(db, 'clients'), orderBy('name', 'asc'))
-    const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
-      const clientsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name
-      }))
-      setClients(clientsList)
-    })
+    loadClients()
+    loadProjects()
 
-    // Carregar projetos
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
-    const unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-      const projectsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Project[]
-      setProjects(projectsList)
-    })
+    // Subscribe to real-time updates
+    const clientsSubscription = supabase
+      .channel('clients')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+        loadClients()
+      })
+      .subscribe()
+
+    const projectsSubscription = supabase
+      .channel('projects')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        loadProjects()
+      })
+      .subscribe()
 
     return () => {
-      unsubscribeClients()
-      unsubscribeProjects()
+      supabase.removeChannel(clientsSubscription)
+      supabase.removeChannel(projectsSubscription)
     }
   }, [])
+
+  const loadClients = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .order('name', { ascending: true })
+      
+      if (error) throw error
+      setClients(data || [])
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error)
+    }
+  }
+
+  const loadProjects = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setProjects(data || [])
+    } catch (error) {
+      console.error('Erro ao carregar projetos:', error)
+    }
+  }
 
   const addClient = async () => {
     if (!newClientName.trim()) return
     try {
-      await addDoc(collection(db, 'clients'), {
-        name: newClientName
-      })
+      const { error } = await supabase
+        .from('clients')
+        .insert([{ name: newClientName }])
+      
+      if (error) throw error
       setNewClientName('')
+      loadClients()
     } catch (error) {
       console.error('Erro ao adicionar cliente:', error)
     }
@@ -93,22 +121,26 @@ export default function Home() {
   const addProject = async () => {
     if (!newProjectTitle.trim() || !newProjectClient) return
     try {
-      await addDoc(collection(db, 'projects'), {
-        title: newProjectTitle,
-        clientId: newProjectClient,
-        type: newProjectType,
-        responsible: newProjectResponsible,
-        photoCount: newProjectPhotoCount,
-        status: 'recebidos',
-        order: Date.now(),
-        createdAt: Date.now()
-      })
+      const { error } = await supabase
+        .from('projects')
+        .insert([{
+          title: newProjectTitle,
+          client_id: newProjectClient,
+          type: newProjectType,
+          responsible: newProjectResponsible,
+          quantity_photos: parseInt(newProjectPhotoCount) || 0,
+          status: 'recebidos',
+          order_index: Date.now()
+        }])
+      
+      if (error) throw error
       setNewProjectTitle('')
       setNewProjectClient('')
       setNewProjectType('curso')
       setNewProjectResponsible('')
       setNewProjectPhotoCount('')
       setIsAddDialogOpen(false)
+      loadProjects()
     } catch (error) {
       console.error('Erro ao adicionar projeto:', error)
     }
@@ -116,9 +148,15 @@ export default function Home() {
 
   const updateProject = async (projectId: string, updates: Partial<Project>) => {
     try {
-      await updateDoc(doc(db, 'projects', projectId), updates)
+      const { error } = await supabase
+        .from('projects')
+        .update(updates)
+        .eq('id', projectId)
+      
+      if (error) throw error
       setIsEditDialogOpen(false)
       setEditingProject(null)
+      loadProjects()
     } catch (error) {
       console.error('Erro ao atualizar projeto:', error)
     }
@@ -126,7 +164,13 @@ export default function Home() {
 
   const deleteProject = async (projectId: string) => {
     try {
-      await deleteDoc(doc(db, 'projects', projectId))
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+      
+      if (error) throw error
+      loadProjects()
     } catch (error) {
       console.error('Erro ao deletar projeto:', error)
     }
@@ -137,7 +181,7 @@ export default function Home() {
   }
 
   const getProjectCountByClient = (clientId: string) => {
-    return projects.filter(p => p.clientId === clientId).length
+    return projects.filter(p => p.client_id === clientId).length
   }
 
   const sortedClients = [...clients].sort((a, b) => a.name.localeCompare(b.name))
@@ -284,7 +328,7 @@ export default function Home() {
                       </div>
                       <div className="space-y-2">
                         {projects
-                          .filter(p => p.clientId === client.id && p.status === column.id)
+                          .filter(p => p.client_id === client.id && p.status === column.id)
                           .map(project => (
                             <Card key={project.id} className="cursor-move hover:shadow-md transition">
                               <CardContent className="p-2">
@@ -292,8 +336,8 @@ export default function Home() {
                                 {project.responsible && (
                                   <p className="text-xs text-gray-600 mt-1">👤 {project.responsible}</p>
                                 )}
-                                {project.photoCount && (
-                                  <p className="text-xs text-gray-600">📸 {project.photoCount} fotos</p>
+                                {project.quantity_photos && (
+                                  <p className="text-xs text-gray-600">📸 {project.quantity_photos} fotos</p>
                                 )}
                                 <Badge className="text-xs mt-2">{project.type}</Badge>
                                 <div className="flex gap-1 mt-2">
@@ -357,8 +401,8 @@ export default function Home() {
                   <label className="text-sm font-medium">Quantidade de Fotos</label>
                   <Input
                     type="number"
-                    value={editingProject.photoCount}
-                    onChange={(e) => setEditingProject({ ...editingProject, photoCount: e.target.value })}
+                    value={editingProject.quantity_photos}
+                    onChange={(e) => setEditingProject({ ...editingProject, quantity_photos: parseInt(e.target.value) || 0 })}
                     className="mt-2"
                   />
                 </div>
