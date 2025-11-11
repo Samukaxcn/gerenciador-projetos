@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -94,7 +95,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from('projects')
         .select('*')
-        .order('created_at', { ascending: false })
+        .order('order_index', { ascending: true })
       
       if (error) throw error
       setProjects(data || [])
@@ -176,6 +177,21 @@ export default function Home() {
     }
   }
 
+  const deleteClient = async (clientId: string) => {
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', clientId)
+      
+      if (error) throw error
+      loadClients()
+      loadProjects()
+    } catch (error) {
+      console.error('Erro ao deletar cliente:', error)
+    }
+  }
+
   const getClientName = (clientId: string) => {
     return clients.find(c => c.id === clientId)?.name || 'Cliente desconhecido'
   }
@@ -185,8 +201,38 @@ export default function Home() {
   }
 
   const sortedClients = [...clients].sort((a, b) => a.name.localeCompare(b.name))
-
   const displayedClients = filterClient === 'all' ? sortedClients : sortedClients.filter(c => c.id === filterClient)
+
+  // Handle drag and drop
+  const handleDragEnd = async (result: DropResult) => {
+    const { source, destination, draggableId } = result
+
+    if (!destination) return
+
+    const project = projects.find(p => p.id === draggableId)
+    if (!project) return
+
+    // Se mudou de coluna
+    if (source.droppableId !== destination.droppableId) {
+      await updateProject(draggableId, {
+        status: destination.droppableId,
+        order_index: destination.index
+      })
+    } else if (source.index !== destination.index) {
+      // Se reordenou dentro da mesma coluna
+      await updateProject(draggableId, {
+        order_index: destination.index
+      })
+    }
+
+    loadProjects()
+  }
+
+  // Agrupar projetos por status
+  const projectsByStatus = STATUS_COLUMNS.reduce((acc, col) => {
+    acc[col.id] = projects.filter(p => p.status === col.id)
+    return acc
+  }, {} as Record<string, Project[]>)
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -304,72 +350,75 @@ export default function Home() {
           </Select>
         </div>
 
-        {/* Clients and Projects */}
-        {displayedClients.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">Nenhum projeto cadastrado ainda</p>
-            <p className="text-gray-400">Clique em "Novo Projeto" para começar</p>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {displayedClients.map(client => (
-              <div key={client.id} className="bg-white rounded-lg shadow p-4">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-                  <span>{client.name}</span>
-                  <Badge variant="secondary">{getProjectCountByClient(client.id)} projetos</Badge>
-                </h2>
-
-                {/* Status Columns */}
-                <div className="grid grid-cols-5 gap-4">
-                  {STATUS_COLUMNS.map(column => (
-                    <div key={column.id} className="bg-gray-50 rounded-lg p-3">
-                      <div className={`${column.color} text-white rounded px-3 py-2 text-sm font-semibold mb-3`}>
-                        {column.title}
-                      </div>
-                      <div className="space-y-2">
-                        {projects
-                          .filter(p => p.client_id === client.id && p.status === column.id)
-                          .map(project => (
-                            <Card key={project.id} className="cursor-move hover:shadow-md transition">
-                              <CardContent className="p-2">
-                                <p className="font-semibold text-sm">{project.title}</p>
-                                {project.responsible && (
-                                  <p className="text-xs text-gray-600 mt-1">👤 {project.responsible}</p>
-                                )}
-                                {project.quantity_photos && (
-                                  <p className="text-xs text-gray-600">📸 {project.quantity_photos} fotos</p>
-                                )}
-                                <Badge className="text-xs mt-2">{project.type}</Badge>
-                                <div className="flex gap-1 mt-2">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => {
-                                      setEditingProject(project)
-                                      setIsEditDialogOpen(true)
-                                    }}
-                                  >
-                                    <Edit size={14} />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => deleteProject(project.id)}
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                      </div>
-                    </div>
-                  ))}
+        {/* Kanban Board */}
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
+            {STATUS_COLUMNS.map(column => (
+              <div key={column.id} className="flex-shrink-0 w-80">
+                <div className={`${column.color} text-white p-4 rounded-t-lg font-bold`}>
+                  {column.title}
                 </div>
+                <Droppable droppableId={column.id}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`bg-gray-100 p-4 rounded-b-lg min-h-96 ${
+                        snapshot.isDraggingOver ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      {projectsByStatus[column.id]
+                        .filter(p => filterClient === 'all' || p.client_id === filterClient)
+                        .map((project, index) => (
+                          <Draggable key={project.id} draggableId={project.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={`bg-white p-4 rounded-lg mb-3 shadow-sm cursor-move ${
+                                  snapshot.isDragging ? 'shadow-lg bg-blue-50' : ''
+                                }`}
+                              >
+                                <div className="flex justify-between items-start mb-2">
+                                  <h3 className="font-semibold text-gray-900 flex-1">{project.title}</h3>
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => {
+                                        setEditingProject(project)
+                                        setIsEditDialogOpen(true)
+                                      }}
+                                      className="text-blue-500 hover:text-blue-700"
+                                    >
+                                      <Edit size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => deleteProject(project.id)}
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="text-sm text-gray-600 space-y-1">
+                                  <p><strong>Cliente:</strong> {getClientName(project.client_id)}</p>
+                                  <p><strong>Tipo:</strong> {project.type}</p>
+                                  <p><strong>Responsável:</strong> {project.responsible}</p>
+                                  <p><strong>Fotos:</strong> {project.quantity_photos}</p>
+                                </div>
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
               </div>
             ))}
           </div>
-        )}
+        </DragDropContext>
 
         {/* Edit Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -407,20 +456,6 @@ export default function Home() {
                   />
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium">Status</label>
-                  <Select value={editingProject.status} onValueChange={(value) => setEditingProject({ ...editingProject, status: value })}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_COLUMNS.map(column => (
-                        <SelectItem key={column.id} value={column.id}>{column.title}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 <Button
                   onClick={() => updateProject(editingProject.id, editingProject)}
                   className="w-full"
@@ -435,4 +470,3 @@ export default function Home() {
     </div>
   )
 }
-
