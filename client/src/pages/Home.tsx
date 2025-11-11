@@ -203,6 +203,16 @@ export default function Home() {
   const sortedClients = [...clients].sort((a, b) => a.name.localeCompare(b.name))
   const displayedClients = filterClient === 'all' ? sortedClients : sortedClients.filter(c => c.id === filterClient)
 
+  // Função para contar projetos por status de um cliente
+  const getProjectsByClientAndStatus = (clientId: string, status: string) => {
+    return projects.filter(p => p.client_id === clientId && p.status === status).length
+  }
+
+  // Função para contar total de projetos por status
+  const getTotalByStatus = (status: string) => {
+    return projects.filter(p => p.status === status).length
+  }
+
   // Handle drag and drop
   const handleDragEnd = async (result: DropResult) => {
     const { source, destination, draggableId } = result
@@ -237,6 +247,65 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-full">
+        {/* Stats Panel */}
+        <div className="mb-8 bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Resumo de Projetos</h2>
+          
+          {/* Tabela de Clientes */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b-2 border-gray-300">
+                  <th className="text-left py-3 px-4 font-bold text-gray-700">Cliente</th>
+                  {STATUS_COLUMNS.map(col => (
+                    <th key={col.id} className="text-center py-3 px-4 font-bold text-gray-700">
+                      <span className={`inline-block px-3 py-1 rounded text-white text-xs font-bold ${col.color}`}>
+                        {col.title}
+                      </span>
+                    </th>
+                  ))}
+                  <th className="text-center py-3 px-4 font-bold text-gray-700">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedClients.map(client => {
+                  const total = projects.filter(p => p.client_id === client.id).length
+                  return (
+                    <tr key={client.id} className="border-b border-gray-200 hover:bg-gray-50">
+                      <td className="py-3 px-4 font-semibold text-gray-900">{client.name}</td>
+                      {STATUS_COLUMNS.map(col => (
+                        <td key={col.id} className="text-center py-3 px-4">
+                          <Badge className="bg-gray-200 text-gray-800 font-bold">
+                            {getProjectsByClientAndStatus(client.id, col.id)}
+                          </Badge>
+                        </td>
+                      ))}
+                      <td className="text-center py-3 px-4 font-bold text-gray-900">
+                        <Badge className="bg-blue-500 text-white font-bold">{total}</Badge>
+                      </td>
+                    </tr>
+                  )
+                })}
+                <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
+                  <td className="py-3 px-4 text-gray-900">TOTAL GERAL</td>
+                  {STATUS_COLUMNS.map(col => (
+                    <td key={col.id} className="text-center py-3 px-4">
+                      <Badge className={`${col.color} text-white font-bold`}>
+                        {getTotalByStatus(col.id)}
+                      </Badge>
+                    </td>
+                  ))}
+                  <td className="text-center py-3 px-4">
+                    <Badge className="bg-purple-500 text-white font-bold text-lg px-4 py-2">
+                      {projects.length}
+                    </Badge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900">Gerenciador de Projetos</h1>
