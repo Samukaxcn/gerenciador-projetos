@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Edit, Filter } from 'lucide-react'
+import { Plus, Trash2, Edit, ChevronDown, ChevronUp } from 'lucide-react'
 
 const STATUS_COLUMNS = [
   { id: 'recebidos', title: 'Recebidos', color: 'bg-emerald-500' },
@@ -37,7 +37,7 @@ interface Project {
 export default function Home() {
   const [clients, setClients] = useState<Client[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [filterClient, setFilterClient] = useState('all')
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -85,6 +85,8 @@ export default function Home() {
       
       if (error) throw error
       setClients(data || [])
+      // Expandir todos os clientes por padrão
+      setExpandedClients(new Set((data || []).map(c => c.id)))
     } catch (error) {
       console.error('Erro ao carregar clientes:', error)
     }
@@ -200,18 +202,15 @@ export default function Home() {
     return projects.filter(p => p.client_id === clientId).length
   }
 
-  const sortedClients = [...clients].sort((a, b) => a.name.localeCompare(b.name))
-  const displayedClients = filterClient === 'all' ? sortedClients : sortedClients.filter(c => c.id === filterClient)
-
-  // Função para contar projetos por status de um cliente
   const getProjectsByClientAndStatus = (clientId: string, status: string) => {
     return projects.filter(p => p.client_id === clientId && p.status === status).length
   }
 
-  // Função para contar total de projetos por status
   const getTotalByStatus = (status: string) => {
     return projects.filter(p => p.status === status).length
   }
+
+  const sortedClients = [...clients].sort((a, b) => a.name.localeCompare(b.name))
 
   // Handle drag and drop
   const handleDragEnd = async (result: DropResult) => {
@@ -238,20 +237,122 @@ export default function Home() {
     loadProjects()
   }
 
-  // Agrupar projetos por status
-  const projectsByStatus = STATUS_COLUMNS.reduce((acc, col) => {
-    acc[col.id] = projects.filter(p => p.status === col.id)
-    return acc
-  }, {} as Record<string, Project[]>)
+  // Agrupar projetos por cliente e status
+  const getProjectsByClientAndStatusList = (clientId: string, status: string) => {
+    return projects.filter(p => p.client_id === clientId && p.status === status)
+  }
+
+  const toggleClientExpanded = (clientId: string) => {
+    const newExpanded = new Set(expandedClients)
+    if (newExpanded.has(clientId)) {
+      newExpanded.delete(clientId)
+    } else {
+      newExpanded.add(clientId)
+    }
+    setExpandedClients(newExpanded)
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-full">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900">Dashboard Imagine</h1>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus size={20} />
+                Novo Projeto
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Adicionar Novo Projeto</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Adicionar Novo Cliente</label>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      placeholder="Nome do cliente"
+                      value={newClientName}
+                      onChange={(e) => setNewClientName(e.target.value)}
+                    />
+                    <Button onClick={addClient} size="sm">+</Button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Título do Projeto</label>
+                  <Input
+                    placeholder="Nome do curso ou contrato"
+                    value={newProjectTitle}
+                    onChange={(e) => setNewProjectTitle(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Cliente</label>
+                  <Select value={newProjectClient} onValueChange={setNewProjectClient}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue placeholder="Selecione um cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortedClients.map(client => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} <Badge className="ml-2">{getProjectCountByClient(client.id)}</Badge>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Tipo</label>
+                  <Select value={newProjectType} onValueChange={setNewProjectType}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="curso">Curso</SelectItem>
+                      <SelectItem value="contrato">Contrato</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Responsável</label>
+                  <Input
+                    placeholder="Nome do responsável"
+                    value={newProjectResponsible}
+                    onChange={(e) => setNewProjectResponsible(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Quantidade de Fotos</label>
+                  <Input
+                    placeholder="Ex: 50"
+                    type="number"
+                    value={newProjectPhotoCount}
+                    onChange={(e) => setNewProjectPhotoCount(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+
+                <Button onClick={addProject} className="w-full">Adicionar Projeto</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
         {/* Stats Panel */}
         <div className="mb-8 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Resumo de Projetos</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Resumo Geral</h2>
           
-          {/* Tabela de Clientes */}
+          {/* Tabela de Resumo */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -306,187 +407,114 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">Gerenciador de Projetos</h1>
-          <div className="flex gap-4">
-            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Plus size={20} />
-                  Novo Projeto
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Adicionar Novo Projeto</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium">Adicionar Novo Cliente</label>
-                    <div className="flex gap-2 mt-2">
-                      <Input
-                        placeholder="Nome do cliente"
-                        value={newClientName}
-                        onChange={(e) => setNewClientName(e.target.value)}
-                      />
-                      <Button onClick={addClient} size="sm">+</Button>
+        {/* Kanban Boards por Cliente */}
+        <DragDropContext onDragEnd={handleDragEnd}>
+          {sortedClients.map(client => {
+            const clientProjects = projects.filter(p => p.client_id === client.id)
+            const isExpanded = expandedClients.has(client.id)
+
+            return (
+              <div key={client.id} className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
+                {/* Client Header */}
+                <div
+                  className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 cursor-pointer hover:from-blue-700 hover:to-blue-800 transition-all"
+                  onClick={() => toggleClientExpanded(client.id)}
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-4">
+                      {isExpanded ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
+                      <div>
+                        <h2 className="text-2xl font-bold">{client.name}</h2>
+                        <p className="text-blue-100">
+                          {clientProjects.length} projeto{clientProjects.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {STATUS_COLUMNS.map(col => {
+                        const count = getProjectsByClientAndStatus(client.id, col.id)
+                        return (
+                          <div key={col.id} className="text-center">
+                            <div className="text-2xl font-bold">{count}</div>
+                            <div className="text-xs text-blue-100">{col.title}</div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Título do Projeto</label>
-                    <Input
-                      placeholder="Nome do curso ou contrato"
-                      value={newProjectTitle}
-                      onChange={(e) => setNewProjectTitle(e.target.value)}
-                      className="mt-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Cliente</label>
-                    <Select value={newProjectClient} onValueChange={setNewProjectClient}>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Selecione um cliente" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sortedClients.map(client => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name} <Badge className="ml-2">{getProjectCountByClient(client.id)}</Badge>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Tipo</label>
-                    <Select value={newProjectType} onValueChange={setNewProjectType}>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="curso">Curso</SelectItem>
-                        <SelectItem value="contrato">Contrato</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Responsável</label>
-                    <Input
-                      placeholder="Nome do responsável"
-                      value={newProjectResponsible}
-                      onChange={(e) => setNewProjectResponsible(e.target.value)}
-                      className="mt-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium">Quantidade de Fotos</label>
-                    <Input
-                      placeholder="Ex: 50"
-                      type="number"
-                      value={newProjectPhotoCount}
-                      onChange={(e) => setNewProjectPhotoCount(e.target.value)}
-                      className="mt-2"
-                    />
-                  </div>
-
-                  <Button onClick={addProject} className="w-full">Adicionar Projeto</Button>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
 
-        {/* Filter */}
-        <div className="mb-6 flex gap-2 items-center">
-          <Filter size={20} />
-          <Select value={filterClient} onValueChange={setFilterClient}>
-            <SelectTrigger className="w-64">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os clientes ({projects.length} projetos)</SelectItem>
-              {sortedClients.map(client => (
-                <SelectItem key={client.id} value={client.id}>
-                  {client.name} ({getProjectCountByClient(client.id)} projetos)
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Kanban Board */}
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
-            {STATUS_COLUMNS.map(column => (
-              <div key={column.id} className="flex-shrink-0 w-80">
-                <div className={`${column.color} text-white p-4 rounded-t-lg font-bold`}>
-                  {column.title}
-                </div>
-                <Droppable droppableId={column.id}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`bg-gray-100 p-4 rounded-b-lg min-h-96 ${
-                        snapshot.isDraggingOver ? 'bg-blue-50' : ''
-                      }`}
-                    >
-                      {projectsByStatus[column.id]
-                        .filter(p => filterClient === 'all' || p.client_id === filterClient)
-                        .map((project, index) => (
-                          <Draggable key={project.id} draggableId={project.id} index={index}>
+                {/* Kanban Board */}
+                {isExpanded && (
+                  <div className="p-6 bg-gray-50">
+                    <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
+                      {STATUS_COLUMNS.map(column => (
+                        <div key={column.id} className="flex-shrink-0 w-80">
+                          <div className={`${column.color} text-white p-4 rounded-t-lg font-bold`}>
+                            {column.title}
+                          </div>
+                          <Droppable droppableId={`${client.id}-${column.id}`}>
                             {(provided, snapshot) => (
                               <div
                                 ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                                className={`bg-white p-4 rounded-lg mb-3 shadow-sm cursor-move ${
-                                  snapshot.isDragging ? 'shadow-lg bg-blue-50' : ''
+                                {...provided.droppableProps}
+                                className={`bg-white p-4 rounded-b-lg min-h-96 border-2 ${
+                                  snapshot.isDraggingOver ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
                                 }`}
                               >
-                                <div className="flex justify-between items-start mb-2">
-                                  <h3 className="font-semibold text-gray-900 flex-1">{project.title}</h3>
-                                  <div className="flex gap-1">
-                                    <button
-                                      onClick={() => {
-                                        setEditingProject(project)
-                                        setIsEditDialogOpen(true)
-                                      }}
-                                      className="text-blue-500 hover:text-blue-700"
-                                    >
-                                      <Edit size={16} />
-                                    </button>
-                                    <button
-                                      onClick={() => deleteProject(project.id)}
-                                      className="text-red-500 hover:text-red-700"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
-                                  </div>
-                                </div>
+                                {getProjectsByClientAndStatusList(client.id, column.id).map((project, index) => (
+                                  <Draggable key={project.id} draggableId={project.id} index={index}>
+                                    {(provided, snapshot) => (
+                                      <div
+                                        ref={provided.innerRef}
+                                        {...provided.draggableProps}
+                                        {...provided.dragHandleProps}
+                                        className={`bg-white p-4 rounded-lg mb-3 shadow-sm cursor-move border-l-4 ${
+                                          snapshot.isDragging ? 'shadow-lg bg-blue-50 border-blue-500' : 'border-gray-300'
+                                        }`}
+                                      >
+                                        <div className="flex justify-between items-start mb-2">
+                                          <h3 className="font-semibold text-gray-900 flex-1">{project.title}</h3>
+                                          <div className="flex gap-1">
+                                            <button
+                                              onClick={() => {
+                                                setEditingProject(project)
+                                                setIsEditDialogOpen(true)
+                                              }}
+                                              className="text-blue-500 hover:text-blue-700"
+                                            >
+                                              <Edit size={16} />
+                                            </button>
+                                            <button
+                                              onClick={() => deleteProject(project.id)}
+                                              className="text-red-500 hover:text-red-700"
+                                            >
+                                              <Trash2 size={16} />
+                                            </button>
+                                          </div>
+                                        </div>
 
-                                <div className="text-sm text-gray-600 space-y-1">
-                                  <p><strong>Cliente:</strong> {getClientName(project.client_id)}</p>
-                                  <p><strong>Tipo:</strong> {project.type}</p>
-                                  <p><strong>Responsável:</strong> {project.responsible}</p>
-                                  <p><strong>Fotos:</strong> {project.quantity_photos}</p>
-                                </div>
+                                        <div className="text-sm text-gray-600 space-y-1">
+                                          <p><strong>Tipo:</strong> {project.type}</p>
+                                          <p><strong>Responsável:</strong> {project.responsible}</p>
+                                          <p><strong>Fotos:</strong> {project.quantity_photos}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </Draggable>
+                                ))}
+                                {provided.placeholder}
                               </div>
                             )}
-                          </Draggable>
-                        ))}
-                      {provided.placeholder}
+                          </Droppable>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </Droppable>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+            )
+          })}
         </DragDropContext>
 
         {/* Edit Dialog */}
